@@ -11,6 +11,14 @@
 
 typedef struct {
     char username[MAX];
+    char vehicle[MAX];
+    int slotID;
+    double timeSpent;
+    double cost;
+} ChargingSession;
+
+typedef struct {
+    char username[MAX];
     char password[MAX];
     char vehicle_type[MAX];
     char email[MAX];
@@ -42,63 +50,75 @@ void adminMenu();
 void viewReport();
 void registerAdmin();
 int loginAdmin();
+void sortSessionsByCost(ChargingSession *sessions, int n);
 
 int main() {
-    int choice;
-    int keepRunning = 1; // Flag to control the program flow
-    int isAdmin = 0;      // Admin or User
+    int isAdmin = 0;     // Admin or User
 
-    printf("Are you an Admin or User?\n1. Admin\n2. User\n");
-    scanf("%d", &isAdmin);
+    loadSlotStates(); // Load slot states at the start
 
-    if (isAdmin == 1) {
-        // Admin registration and login flow
-        printf("1. Register as Admin\n2. Login as Admin\n");
-        scanf("%d", &choice);
+    while (1) {  // Main loop
+        printf("Are you an Admin or User?\n1. Admin\n2. User\n3. Exit\n");
+        scanf("%d", &isAdmin);
 
-        if (choice == 1) {
-            registerAdmin();
-        } else if (choice == 2) {
-            if (loginAdmin()) {
-                adminMenu();  // Access admin options
-            } else {
-                printf("Invalid admin credentials.\n");
+        if (isAdmin == 1) {
+            int adminChoice;
+            while (1) {
+                printf("1. Register as Admin\n2. Login as Admin\n3. Exit\n");
+                scanf("%d", &adminChoice);
+
+                switch (adminChoice) {
+                    case 1:
+                        registerAdmin();
+                        break;
+                    case 2:
+                        if (loginAdmin()) {
+                            adminMenu();
+                        } else {
+                            printf("Invalid admin credentials.\n");
+                        }
+                        break;
+                    case 3:
+                        printf("Returning to the main menu...\n");
+                        break;
+                    default:
+                        printf("Invalid choice.\n");
+                }
+                if (adminChoice == 3) break;
             }
+        } else if (isAdmin == 2) {
+            int userChoice;
+            while (1) {
+                printf("\n1. Register\n2. Login\n3. Exit\n");
+                printf("Enter your choice: ");
+                scanf("%d", &userChoice);
+
+                switch (userChoice) {
+                    case 1:
+                        registerUser();
+                        break;
+                    case 2:
+                        if (loginUser()) {
+                            printf("Login successful!\n");
+                            evChargerMenu();
+                        } else {
+                            printf("Invalid username or password.\n");
+                        }
+                        break;
+                    case 3:
+                        printf("Returning to the main menu...\n");
+                        break;
+                    default:
+                        printf("Invalid choice. Please try again.\n");
+                }
+                if (userChoice == 3) break;
+            }
+        } else if (isAdmin == 3) {
+            printf("Exiting the program...\n");
+            saveSlotStates();
+            return 0;
         } else {
             printf("Invalid choice.\n");
-        }
-    } else {
-        // Load the slot states from file for users
-        loadSlotStates();
-
-        while (keepRunning) {
-            printf("\n1. Register\n");
-            printf("2. Login\n");
-            printf("3. Exit\n");  // Option to exit
-            printf("Enter your choice: ");
-            scanf("%d", &choice);
-
-            switch (choice) {
-                case 1:
-                    registerUser();
-                    break;
-                case 2:
-                    if (loginUser()) {
-                        printf("Login successful!\n");
-                        evChargerMenu();  // Forward to EV charger menu after successful login
-                    } else {
-                        printf("Invalid username or password.\n");
-                    }
-                    break;
-                case 3:
-                    printf("Exiting the program...\n");
-                    // Save the slot states to file
-                    saveSlotStates();
-                    keepRunning = 0;  // Exit the loop
-                    break;
-                default:
-                    printf("Invalid choice. Please try again.\n");
-            }
         }
     }
 
@@ -127,7 +147,6 @@ void registerUser() {
         return;
     }
 
-    // Store full user details in the file
     fprintf(fp, "%s %s %s %s\n", user.username, user.password, user.vehicle_type, user.email);
     fclose(fp);
 
@@ -152,7 +171,6 @@ void registerAdmin() {
         return;
     }
 
-    // Store admin details in the admin file
     fprintf(fp, "%s %s\n", admin.username, admin.password);
     fclose(fp);
 
@@ -193,9 +211,7 @@ int loginAdmin() {
 // Admin menu for viewing reports
 void adminMenu() {
     int choice;
-    int keepRunning = 1;
-
-    while (keepRunning) {
+    while (1) {
         printf("\nAdmin Menu:\n");
         printf("1. View Charging Report\n");
         printf("2. Exit\n");
@@ -204,72 +220,84 @@ void adminMenu() {
 
         switch (choice) {
             case 1:
-                viewReport();  // View report of completed charging sessions
+                viewReport();
                 break;
             case 2:
-                printf("Exiting Admin Menu...\n");
-                keepRunning = 0;  // Exit admin menu loop
-                break;
+                printf("Returning to the main menu...\n");
+                return;
             default:
                 printf("Invalid choice. Please try again.\n");
         }
     }
 }
 
-
-// Function to generate a report of completed charging sessions
+// Function to generate a report of completed charging sessions, sorted by cost
 void viewReport() {
     FILE *fp;
+    ChargingSession sessions[MAX];
+    int count = 0;
     char buffer[MAX];
-    int vehicleCount = 0;
-    double totalRevenue = 0;
     char username[MAX], vehicle[MAX];
     int slotID;
     double timeSpent, cost;
 
-    // Open the completed sessions file
     fp = fopen(SESSION_FILE, "r");
     if (fp == NULL) {
         perror("Error opening session file");
         return;
     }
 
-    printf("\nCompleted Charging Sessions Report:\n");
-    printf("--------------------------------------------------\n");
-    printf("User\t\tVehicle\t\tSlot\tTime\tCost\n");
-    printf("--------------------------------------------------\n");
-
-    // Read each line from the file and parse the information
     while (fgets(buffer, sizeof(buffer), fp)) {
-        // Use sscanf to extract data from each line
         if (sscanf(buffer, "User: %[^,], Vehicle: %[^,], Slot: %d, Time: %lf seconds, Cost: $%lf",
                    username, vehicle, &slotID, &timeSpent, &cost) == 5) {
-            printf("%s\t%s\t%d\t%.0f seconds\t$%.2f\n", username, vehicle, slotID, timeSpent, cost);
-            vehicleCount++;
-            totalRevenue += cost;
+            strcpy(sessions[count].username, username);
+            strcpy(sessions[count].vehicle, vehicle);
+            sessions[count].slotID = slotID;
+            sessions[count].timeSpent = timeSpent;
+            sessions[count].cost = cost;
+            count++;
         } else {
-            printf("Error parsing line: %s", buffer);  // Handle any parsing errors
+            printf("Error parsing line: %s", buffer);
         }
     }
-
-    printf("--------------------------------------------------\n");
-    printf("Total vehicles charged: %d\n", vehicleCount);
-    printf("Total revenue: $%.2f\n", totalRevenue);
-
     fclose(fp);
+
+    // Sort the sessions in descending order of cost
+    sortSessionsByCost(sessions, count);
+
+    // Display the sorted report
+    printf("\nCompleted Charging Sessions Report (sorted by cost):\n");
+    printf("--------------------------------------------------\n");
+    printf("User\t\tVehicle\t\tSlot\tCost\tTime\n");
+    printf("--------------------------------------------------\n");
+    for (int i = 0; i < count; i++) {
+        printf("%s\t%s\t%d\t$%.2f\t%.0f seconds\n",
+               sessions[i].username, sessions[i].vehicle, sessions[i].slotID,
+               sessions[i].cost, sessions[i].timeSpent);
+    }
+    printf("--------------------------------------------------\n");
 }
 
+// Function to sort charging sessions in descending order of cost
+void sortSessionsByCost(ChargingSession *sessions, int n) {
+    ChargingSession temp;
+    for (int i = 0; i < n - 1; i++) {
+        for (int j = 0; j < n - i - 1; j++) {
+            if (sessions[j].cost < sessions[j + 1].cost) {
+                temp = sessions[j];
+                sessions[j] = sessions[j + 1];
+                sessions[j + 1] = temp;
+            }
+        }
+    }
+}
 
-
-//--------------------------------user functions-----------------------------//
-
-
-
-// Function to log in a user by checking username and password
+// Function to log in a user
 int loginUser() {
     FILE *fp;
     char username[MAX], password[MAX];
     int found = 0;
+    User user;
 
     printf("\n-----------------\n");
     printf("Enter username: ");
@@ -284,8 +312,9 @@ int loginUser() {
         return 0;
     }
 
-    while (fscanf(fp, "%s %s %s %s", currentUser.username, currentUser.password, currentUser.vehicle_type, currentUser.email) != EOF) {
-        if (strcmp(username, currentUser.username) == 0 && strcmp(password, currentUser.password) == 0) {
+    while (fscanf(fp, "%s %s %s %s", user.username, user.password, user.vehicle_type, user.email) != EOF) {
+        if (strcmp(username, user.username) == 0 && strcmp(password, user.password) == 0) {
+            currentUser = user;  // Store the logged-in user details
             found = 1;
             break;
         }
@@ -293,12 +322,10 @@ int loginUser() {
 
     fclose(fp);
 
-    // Check if this user has an already booked slot
-    bookedSlotID = -1;  // Reset bookedSlotID before checking
+    // Restore the slot booked by the user, if any
     for (int i = 0; i < NUM_SLOTS; i++) {
-        if (strcmp(slots[i].bookedBy, currentUser.username) == 0) {
-            bookedSlotID = slots[i].slotID;  // Assign the booked slot ID to the user
-            printf("You have previously booked Slot %d.\n", bookedSlotID);
+        if (slots[i].isAvailable == 0 && strcmp(slots[i].bookedBy, currentUser.username) == 0) {
+            bookedSlotID = slots[i].slotID;  // Restore their booked slot ID
             break;
         }
     }
@@ -306,13 +333,119 @@ int loginUser() {
     return found;
 }
 
+// Function to initialize the charging slots at the start of the program
+void initializeSlots() {
+    for (int i = 0; i < NUM_SLOTS; i++) {
+        slots[i].slotID = i + 1;
+        slots[i].isAvailable = 1;  // All slots are available initially
+        slots[i].startTime = 0;
+        strcpy(slots[i].bookedBy, "");  // No one has booked the slot
+    }
 
-// EV Charger Menu
+    saveSlotStates();  // Save the initial slot states to a file
+}
+
+// Function to check charger availability
+void check_charger_availability() {
+    printf("\nAvailable Charging Slots:\n");
+    printf("Slot ID\tStatus\n");
+    for (int i = 0; i < NUM_SLOTS; i++) {
+        printf("%d\t%s\n", slots[i].slotID, slots[i].isAvailable ? "Available" : "Booked");
+    }
+}
+
+// Function to book a charging slot for the user
+int book_charging_slot() {
+    if (bookedSlotID != -1) {
+        printf("You have already booked slot %d.\n", bookedSlotID);
+        return bookedSlotID;
+    }
+
+    int slotChoice;
+    check_charger_availability();
+    printf("\nEnter slot ID to book: ");
+    scanf("%d", &slotChoice);
+
+    if (slotChoice < 1 || slotChoice > NUM_SLOTS || !slots[slotChoice - 1].isAvailable) {
+        printf("Invalid slot choice or slot already booked.\n");
+        return -1;
+    }
+
+    // Mark the slot as booked
+    slots[slotChoice - 1].isAvailable = 0;
+    strcpy(slots[slotChoice - 1].bookedBy, currentUser.username);
+    printf("Slot %d booked successfully!\n", slotChoice);
+
+    saveSlotStates();  // Save updated slot states
+    return slotChoice;  // Return the booked slot ID
+}
+
+// Function to start charging at a booked slot
+void start_charging(int slotID) {
+    time(&slots[slotID - 1].startTime);  // Record the current time as the start time
+    printf("Charging started at slot %d...\n", slotID);
+}
+
+// Function to stop charging at a booked slot and calculate cost
+void stop_charging(int slotID) {
+    time_t stopTime;
+    time(&stopTime);  // Record the current time as the stop time
+    double timeSpent = difftime(stopTime, slots[slotID - 1].startTime);  // Calculate the time spent charging
+
+    // Calculate cost based on charging time (e.g., $0.05 per second)
+    double cost = timeSpent * 0.05;
+
+    printf("Charging stopped at slot %d. Total time: %.0f seconds. Total cost: $%.2f\n",
+           slotID, timeSpent, cost);
+
+    // Log the session to the completed sessions file
+    FILE *fp = fopen(SESSION_FILE, "a");
+    if (fp == NULL) {
+        perror("Error opening session file");
+        return;
+    }
+
+    fprintf(fp, "User: %s, Vehicle: %s, Slot: %d, Time: %.0f seconds, Cost: $%.2f\n",
+            currentUser.username, currentUser.vehicle_type, slotID, timeSpent, cost);
+    fclose(fp);
+
+    // Mark the slot as available again
+    slots[slotID - 1].isAvailable = 1;
+    slots[slotID - 1].startTime = 0;
+    strcpy(slots[slotID - 1].bookedBy, "");  // Clear the bookedBy field
+
+    saveSlotStates();  // Save updated slot states
+}
+
+// Function to save the states of all charging slots to a file
+void saveSlotStates() {
+    FILE *fp = fopen(SLOT_FILE, "wb");
+    if (fp == NULL) {
+        perror("Error opening slot file");
+        return;
+    }
+
+    fwrite(slots, sizeof(ChargingSlot), NUM_SLOTS, fp);
+    fclose(fp);
+}
+
+// Function to load the states of all charging slots from a file
+void loadSlotStates() {
+    FILE *fp = fopen(SLOT_FILE, "rb");
+    if (fp == NULL) {
+        // If the file does not exist, initialize the slots
+        initializeSlots();
+        return;
+    }
+
+    fread(slots, sizeof(ChargingSlot), NUM_SLOTS, fp);
+    fclose(fp);
+}
+
+// EV charger menu
 void evChargerMenu() {
     int choice;
-    int keepRunning = 1;  // Flag to control the EV charger menu flow
-
-    while (keepRunning) {
+    while (1) {
         printf("\nEV Charger Menu:\n");
         printf("1. Check for charger availability\n");
         printf("2. Book charging slot\n");
@@ -345,124 +478,11 @@ void evChargerMenu() {
                 }
                 break;
             case 5:
-                printf("Exiting EV Charger Menu...\n");
-                keepRunning = 0;  // Exit EV charger menu loop
-                break;
+                printf("Returning to the main menu...\n");
+                return;  // Return to the main menu
             default:
                 printf("Invalid choice. Please try again.\n");
                 break;
         }
     }
-}
-
-void saveSlotStates() {
-    FILE *fp = fopen(SLOT_FILE, "wb");
-    if (fp == NULL) {
-        perror("Error opening slots file");
-        return;
-    }
-    fwrite(slots, sizeof(ChargingSlot), NUM_SLOTS, fp);
-    fclose(fp);
-}
-
-// Load slot states from file
-void loadSlotStates() {
-    FILE *fp = fopen(SLOT_FILE, "rb");
-    if (fp == NULL) {
-        // If the file does not exist, initialize slots
-        initializeSlots();
-        return;
-    }
-    fread(slots, sizeof(ChargingSlot), NUM_SLOTS, fp);
-    fclose(fp);
-}
-
-// Initialize charging slots to available (free)
-void initializeSlots() {
-    for (int i = 0; i < NUM_SLOTS; i++) {
-        slots[i].slotID = i + 1;  // Slot IDs start from 1
-        slots[i].isAvailable = 1; // Mark all slots as available initially
-        slots[i].startTime = 0;   // Initialize startTime to 0
-        slots[i].bookedBy[0] = '\0';  // Initialize the bookedBy field to empty
-    }
-}
-
-// Check for charger availability
-void check_charger_availability() {
-    printf("\nCharging Slot Availability:\n");
-    for (int i = 0; i < NUM_SLOTS; i++) {
-        if (slots[i].isAvailable) {
-            printf("Slot %d is available.\n", slots[i].slotID);
-        } else {
-            printf("Slot %d is booked by %s.\n", slots[i].slotID, slots[i].bookedBy);
-        }
-    }
-}
-
-// Book a charging slot
-int book_charging_slot() {
-    for (int i = 0; i < NUM_SLOTS; i++) {
-        if (slots[i].isAvailable) {
-            slots[i].isAvailable = 0;  // Mark slot as booked
-            slots[i].startTime = 0;    // Reset the start time
-            strcpy(slots[i].bookedBy, currentUser.username);  // Track who booked the slot
-            printf("Slot %d has been successfully booked!\n", slots[i].slotID);
-            return slots[i].slotID;
-        }
-    }
-    printf("No slots available for booking.\n");
-    return -1;  // Return -1 if no slots are available
-}
-
-// Start charging at a booked slot
-void start_charging(int slotID) {
-    for (int i = 0; i < NUM_SLOTS; i++) {
-        if (slots[i].slotID == slotID && !slots[i].isAvailable && strcmp(slots[i].bookedBy, currentUser.username) == 0) {
-            slots[i].startTime = time(NULL);  // Record the start time
-            printf("Charging started at slot %d.\n", slotID);
-            return;
-        }
-    }
-    printf("Error: Slot %d is not booked by you or is not available.\n", slotID);
-}
-
-// Stop charging, calculate the cost, and store the completed session in a file
-void stop_charging(int slotID) {
-    double ratePerSecond = 0.05;  // Charging rate (e.g., $0.05 per second)
-    FILE *fp;
-
-    for (int i = 0; i < NUM_SLOTS; i++) {
-        if (slots[i].slotID == slotID && !slots[i].isAvailable && strcmp(slots[i].bookedBy, currentUser.username) == 0) {
-            time_t stopTime = time(NULL);
-            double timeSpent = difftime(stopTime, slots[i].startTime);
-            double expense = timeSpent * ratePerSecond;
-
-            // Free the slot after charging is complete
-            slots[i].isAvailable = 1;
-            slots[i].startTime = 0;
-            slots[i].bookedBy[0] = '\0';  // Clear the booking username
-
-            printf("Charging stopped at slot %d.\n", slotID);
-            printf("Time spent: %.0f seconds\n", timeSpent);
-            printf("Total cost: $%.2f\n", expense);
-
-            // Log the completed session details to a file
-            fp = fopen(SESSION_FILE, "a");
-            if (fp == NULL) {
-                perror("Error opening session file");
-                return;
-            }
-
-            // Log the session information: username, vehicle, slot ID, time spent, cost
-            fprintf(fp, "User: %s, Vehicle: %s, Slot: %d, Time: %.0f seconds, Cost: $%.2f\n",
-                    currentUser.username, currentUser.vehicle_type, slotID, timeSpent, expense);
-
-            fclose(fp);
-
-            // Save the updated slot states to the file
-            saveSlotStates();
-            return;
-        }
-    }
-    printf("Error: Slot %d is not currently charging by you.\n", slotID);
 }
